@@ -1,15 +1,20 @@
 # Deploy Odds Compare · +EV Finder
 
+**Status:** Git initialized and committed. Push to GitHub, then import on Vercel.
+
 ## Deploy to Vercel (recommended)
 
-### 1. Push to GitHub
+### 1. Create GitHub repo & push
+
+1. Go to [github.com/new](https://github.com/new)
+2. Name it `odds-compare` (or any name)
+3. **Don't** initialize with README (repo is already committed)
+4. Run:
 
 ```bash
 cd sports_value_app
-git init
-git add .
-git commit -m "Initial commit"
 git remote add origin https://github.com/YOUR_USERNAME/odds-compare.git
+git branch -M main
 git push -u origin main
 ```
 
