@@ -6,10 +6,16 @@
 
 ### 1. Create GitHub repo & push
 
-1. Go to [github.com/new](https://github.com/new)
-2. Name it `odds-compare` (or any name)
-3. **Don't** initialize with README (repo is already committed)
-4. Run:
+1. Go to [github.com/new?name=odds-compare](https://github.com/new?name=odds-compare)
+2. **Don't** initialize with README (repo is already committed)
+3. Run (replace `YOUR_USERNAME` with your GitHub username):
+
+```bash
+cd sports_value_app
+./deploy-to-github.sh YOUR_USERNAME
+```
+
+Or manually:
 
 ```bash
 cd sports_value_app
