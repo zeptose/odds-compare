@@ -66,6 +66,28 @@ type EVBet = {
   kellyPct?: number;
 };
 
+type LowHoldEvent = {
+  eventName: string;
+  outcome1: string;
+  outcome2: string;
+  book1: string;
+  book2: string;
+  odds1: number;
+  odds2: number;
+  holdPct: number; // vig %
+};
+
+type MiddleOpportunity = {
+  eventName: string;
+  side1: string; // e.g. "Over 51.5"
+  side2: string; // e.g. "Under 52.5"
+  book1: string;
+  book2: string;
+  odds1: number;
+  odds2: number;
+  middleZone: string; // e.g. "52 wins both"
+};
+
 export default function Home() {
   const [sport, setSport] = useState<SportId>(SPORTS[0].id);
   const [bankroll, setBankroll] = useState("");
@@ -197,6 +219,72 @@ export default function Home() {
     return out.sort((a, b) => b.profitPct - a.profitPct);
   }, [sportsbookEvents]);
 
+  const lowHoldEvents = useMemo((): LowHoldEvent[] => {
+    const out: LowHoldEvent[] = [];
+    for (const ev of sportsbookEvents) {
+      const outcomes = Object.entries(ev.outcomesBySelection);
+      if (outcomes.length !== 2) continue;
+      const [[name1, data1], [name2, data2]] = outcomes;
+      const best1 = data1.allOffers.reduce((a, b) => (a.decimalOdds > b.decimalOdds ? a : b));
+      const best2 = data2.allOffers.reduce((a, b) => (a.decimalOdds > b.decimalOdds ? a : b));
+      if (best1.book === best2.book) continue;
+      const total = 1 / best1.decimalOdds + 1 / best2.decimalOdds;
+      const holdPct = (total - 1) * 100;
+      if (holdPct < 5) {
+        out.push({
+          eventName: ev.eventName,
+          outcome1: name1,
+          outcome2: name2,
+          book1: best1.book,
+          book2: best2.book,
+          odds1: best1.decimalOdds,
+          odds2: best2.decimalOdds,
+          holdPct,
+        });
+      }
+    }
+    return out.sort((a, b) => a.holdPct - b.holdPct);
+  }, [sportsbookEvents]);
+
+  const middles = useMemo((): MiddleOpportunity[] => {
+    const out: MiddleOpportunity[] = [];
+    for (const ev of sportsbookEvents) {
+      if (!ev.totalsBySelection) continue;
+      const entries = Object.entries(ev.totalsBySelection);
+      const overs = entries.filter(([k]) => k.startsWith("Over "));
+      const unders = entries.filter(([k]) => k.startsWith("Under "));
+      for (const [overLabel, overData] of overs) {
+        const overPoint = parseFloat(overLabel.replace("Over ", ""));
+        if (isNaN(overPoint)) continue;
+        for (const [underLabel, underData] of unders) {
+          const underPoint = parseFloat(underLabel.replace("Under ", ""));
+          if (isNaN(underPoint)) continue;
+          if (overPoint >= underPoint) continue; // no overlap
+          const overBook = overData.bestBook;
+          const underBook = underData.bestBook;
+          if (overBook === underBook) continue;
+          const midStart = Math.ceil(overPoint + 0.5);
+          const midEnd = Math.floor(underPoint - 0.5);
+          if (midStart > midEnd) continue;
+          const zone = midStart === midEnd ? `${midStart}` : `${midStart}-${midEnd}`;
+          out.push({
+            eventName: ev.eventName,
+            side1: overLabel,
+            side2: underLabel,
+            book1: overBook,
+            book2: underBook,
+            odds1: overData.bestOdds,
+            odds2: underData.bestOdds,
+            middleZone: `${zone} wins both`,
+          });
+        }
+      }
+    }
+    return out;
+  }, [sportsbookEvents]);
+
+  const [calculatorsOpen, setCalculatorsOpen] = useState(false);
+
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans">
       <header className="border-b border-zinc-800 px-4 py-4 md:px-8">
@@ -224,7 +312,7 @@ export default function Home() {
           <h2 className="text-sm font-semibold text-zinc-300 mb-3">
             How it works
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-3">
             <LearnCard
               title="Decimal odds"
               content="2.50 = bet $1, get $2.50 back (profit $1.50). Higher = less likely. Implied prob = 1 ÷ odds."
@@ -235,11 +323,19 @@ export default function Home() {
             />
             <LearnCard
               title="Kelly fraction"
-              content="Enter bankroll above to see stake, potential profit & loss per bet. Full Kelly = optimal but volatile; half or quarter = safer."
+              content="Enter bankroll above to see stake, profit & loss per bet. Full Kelly = optimal but volatile; half or quarter = safer."
             />
             <LearnCard
-              title="Spreads"
-              content="Chiefs -3.5 = must win by 4+. Other side +3.5 = can lose by 3 and still win the bet."
+              title="Arbitrage"
+              content="Bet both sides at different books for guaranteed profit. Both sides win — rare pairs disappear fast."
+            />
+            <LearnCard
+              title="Middles"
+              content="Over 51.5 at one book, Under 52.5 at another. If exactly 52, you win both. Chance to win both sides."
+            />
+            <LearnCard
+              title="Low Hold"
+              content="Low vig (house edge). Good for bonus rollover, VIP points, moving money between books with minimal loss."
             />
           </div>
         </div>
@@ -322,8 +418,8 @@ export default function Home() {
 
         {!loading && !error && (
           <>
-            {/* Suggested +EV & Arbitrage - prominent sections */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-8">
+            {/* OddsJam-inspired: +EV, Arb, Low Hold, Middles */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-4 gap-4 mb-8">
               <section className="rounded-lg border border-emerald-800/40 bg-emerald-950/20 p-4">
                 <h2 className="text-base font-semibold text-emerald-400 mb-3">
                   Suggested +EV bets
@@ -389,13 +485,15 @@ export default function Home() {
               </section>
 
               <section className="rounded-lg border border-amber-800/40 bg-amber-950/20 p-4">
-                <h2 className="text-base font-semibold text-amber-400 mb-3">
-                  Arbitrage opportunities
+                <h2 className="text-base font-semibold text-amber-400 mb-1">
+                  Arbitrage — both sides win
                 </h2>
+                <p className="text-[10px] text-zinc-500 mb-3">
+                  Guaranteed profit when you bet both sides at different books
+                </p>
                 {arbs.length === 0 ? (
                   <p className="text-zinc-500 text-sm">
-                    No arbitrage right now. Bet both sides at different books for
-                    guaranteed profit when available.
+                    No arb right now. These pairs disappear in seconds.
                   </p>
                 ) : (
                   <div className="space-y-2 max-h-64 overflow-y-auto">
@@ -451,6 +549,110 @@ export default function Home() {
                   </div>
                 )}
               </section>
+
+              {/* Low Hold - OddsJam inspired */}
+              <section className="rounded-lg border border-cyan-800/40 bg-cyan-950/20 p-4">
+                <h2 className="text-base font-semibold text-cyan-400 mb-1">
+                  Low Hold
+                </h2>
+                <p className="text-[10px] text-zinc-500 mb-3">
+                  Low vig · good for bonus rollover
+                </p>
+                {lowHoldEvents.length === 0 ? (
+                  <p className="text-zinc-500 text-sm">
+                    No low-hold events (&lt;5%).
+                  </p>
+                ) : (
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {lowHoldEvents.slice(0, 6).map((l, i) => (
+                      <div
+                        key={i}
+                        className="flex justify-between items-center text-xs py-2 border-b border-zinc-800/50 last:border-0"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <span className="font-medium text-zinc-300 block truncate">
+                            {l.eventName}
+                          </span>
+                          <span className="text-zinc-500 text-[10px]">
+                            {l.outcome1} @ {l.book1} · {l.outcome2} @ {l.book2}
+                          </span>
+                        </div>
+                        <span className="text-cyan-400 font-mono shrink-0 ml-2">
+                          {l.holdPct.toFixed(1)}% hold
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              {/* Middles - OddsJam inspired */}
+              <section className="rounded-lg border border-violet-800/40 bg-violet-950/20 p-4">
+                <h2 className="text-base font-semibold text-violet-400 mb-1">
+                  Middles
+                </h2>
+                <p className="text-[10px] text-zinc-500 mb-3">
+                  Chance to win both sides
+                </p>
+                {middles.length === 0 ? (
+                  <p className="text-zinc-500 text-sm">
+                    No middles found.
+                  </p>
+                ) : (
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {middles.slice(0, 6).map((m, i) => (
+                      <div
+                        key={i}
+                        className="flex justify-between items-start gap-2 text-xs py-2 border-b border-zinc-800/50 last:border-0"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <span className="font-medium text-zinc-300 block truncate">
+                            {m.eventName}
+                          </span>
+                          <a
+                            href={getBookLink(m.book1)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-violet-400 hover:underline block"
+                          >
+                            {m.side1} @ {m.book1} ↗
+                          </a>
+                          <a
+                            href={getBookLink(m.book2)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-violet-400 hover:underline block"
+                          >
+                            {m.side2} @ {m.book2} ↗
+                          </a>
+                        </div>
+                        <span className="text-emerald-400 text-[10px] shrink-0 font-medium">
+                          {m.middleZone}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+            </div>
+
+            {/* Calculators - OddsJam inspired */}
+            <div className="mb-8 rounded-lg border border-zinc-800 bg-zinc-900/50 overflow-hidden">
+              <button
+                onClick={() => setCalculatorsOpen(!calculatorsOpen)}
+                className="w-full px-4 py-3 text-left text-sm font-semibold text-zinc-300 hover:bg-zinc-800/50 flex items-center justify-between"
+              >
+                Calculators
+                <span className="text-zinc-500 text-xs">Arb · Kelly · Odds</span>
+                <span className="text-zinc-500">{calculatorsOpen ? "▲" : "▼"}</span>
+              </button>
+              {calculatorsOpen && (
+                <div className="p-4 pt-0 grid grid-cols-1 md:grid-cols-3 gap-6 border-t border-zinc-800">
+                  <CalculatorArb />
+                  <CalculatorKelly />
+                  <CalculatorOdds />
+                </div>
+              )}
             </div>
 
             {/* Main content grid */}
@@ -538,6 +740,146 @@ function LearnCard({
   );
 }
 
+function CalculatorArb() {
+  const [odds1, setOdds1] = useState("2.10");
+  const [odds2, setOdds2] = useState("2.10");
+  const [stake, setStake] = useState("100");
+  const total = 1 / (Number(odds1) || 0) + 1 / (Number(odds2) || 0);
+  const isArb = total < 1;
+  const profitPct = total < 1 ? (1 / total - 1) * 100 : 0;
+  const st = Number(stake) || 0;
+  const profit = isArb ? st * (1 / total - 1) : 0;
+  return (
+    <div className="rounded-lg border border-zinc-700 bg-zinc-800/50 p-4">
+      <h3 className="text-sm font-semibold text-zinc-200 mb-3">Arbitrage</h3>
+      <div className="space-y-2 text-xs">
+        <div>
+          <label className="text-zinc-500">Odds 1</label>
+          <input
+            type="text"
+            value={odds1}
+            onChange={(e) => setOdds1(e.target.value)}
+            className="w-full mt-0.5 rounded bg-zinc-700 px-2 py-1.5 font-mono"
+          />
+        </div>
+        <div>
+          <label className="text-zinc-500">Odds 2</label>
+          <input
+            type="text"
+            value={odds2}
+            onChange={(e) => setOdds2(e.target.value)}
+            className="w-full mt-0.5 rounded bg-zinc-700 px-2 py-1.5 font-mono"
+          />
+        </div>
+        <div>
+          <label className="text-zinc-500">Total stake ($)</label>
+          <input
+            type="text"
+            value={stake}
+            onChange={(e) => setStake(e.target.value)}
+            className="w-full mt-0.5 rounded bg-zinc-700 px-2 py-1.5 font-mono"
+          />
+        </div>
+        {isArb ? (
+          <div className="mt-3 text-emerald-400 font-mono">
+            +{profitPct.toFixed(2)}% profit · ${profit.toFixed(2)}
+          </div>
+        ) : (
+          <div className="mt-3 text-zinc-500">No arb</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CalculatorKelly() {
+  const [odds, setOdds] = useState("2.50");
+  const [prob, setProb] = useState("45");
+  const [bankroll, setBankroll] = useState("1000");
+  const [frac, setFrac] = useState("0.5");
+  const o = Number(odds) || 2;
+  const p = (Number(prob) || 40) / 100;
+  const q = 1 - p;
+  const b = o - 1;
+  const full = b > 0 ? (b * p - q) / b : 0;
+  const kelly = Math.max(0, Math.min(1, full * (Number(frac) || 0.5)));
+  const br = Number(bankroll) || 0;
+  const stake = br * kelly;
+  return (
+    <div className="rounded-lg border border-zinc-700 bg-zinc-800/50 p-4">
+      <h3 className="text-sm font-semibold text-zinc-200 mb-3">Kelly</h3>
+      <div className="space-y-2 text-xs">
+        <div>
+          <label className="text-zinc-500">Decimal odds</label>
+          <input
+            type="text"
+            value={odds}
+            onChange={(e) => setOdds(e.target.value)}
+            className="w-full mt-0.5 rounded bg-zinc-700 px-2 py-1.5 font-mono"
+          />
+        </div>
+        <div>
+          <label className="text-zinc-500">Your prob (%)</label>
+          <input
+            type="text"
+            value={prob}
+            onChange={(e) => setProb(e.target.value)}
+            className="w-full mt-0.5 rounded bg-zinc-700 px-2 py-1.5 font-mono"
+          />
+        </div>
+        <div>
+          <label className="text-zinc-500">Bankroll ($)</label>
+          <input
+            type="text"
+            value={bankroll}
+            onChange={(e) => setBankroll(e.target.value)}
+            className="w-full mt-0.5 rounded bg-zinc-700 px-2 py-1.5 font-mono"
+          />
+        </div>
+        <div>
+          <label className="text-zinc-500">Fraction (0.5 = half)</label>
+          <input
+            type="text"
+            value={frac}
+            onChange={(e) => setFrac(e.target.value)}
+            className="w-full mt-0.5 rounded bg-zinc-700 px-2 py-1.5 font-mono"
+          />
+        </div>
+        <div className="mt-3 text-emerald-400 font-mono">
+          {(kelly * 100).toFixed(1)}% · ${stake.toFixed(2)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CalculatorOdds() {
+  const [decimal, setDecimal] = useState("2.50");
+  const d = Number(decimal) || 2;
+  const implied = d > 0 ? (1 / d) * 100 : 0;
+  const american = d >= 2 ? (d - 1) * 100 : d <= 1 ? -100 / (d - 1) : 0;
+  return (
+    <div className="rounded-lg border border-zinc-700 bg-zinc-800/50 p-4">
+      <h3 className="text-sm font-semibold text-zinc-200 mb-3">Odds converter</h3>
+      <div className="space-y-2 text-xs">
+        <div>
+          <label className="text-zinc-500">Decimal</label>
+          <input
+            type="text"
+            value={decimal}
+            onChange={(e) => setDecimal(e.target.value)}
+            className="w-full mt-0.5 rounded bg-zinc-700 px-2 py-1.5 font-mono"
+          />
+        </div>
+        <div className="mt-3 space-y-1 font-mono text-zinc-300">
+          <div>Implied: {implied.toFixed(1)}%</div>
+          <div>American: {american >= 0 ? `+${american.toFixed(0)}` : american.toFixed(0)}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function EventCard({
   event,
   compact = false,
@@ -572,26 +914,26 @@ function EventCard({
           return (
             <div
               key={name}
-              className={`flex items-center justify-between rounded px-3 py-2 ${
+              className={`flex items-center justify-between gap-3 rounded px-3 py-2 ${
                 data.isValue
                   ? "bg-emerald-950/40 border border-emerald-800/50"
                   : "bg-zinc-800/50"
               }`}
             >
-              <div className="flex items-center gap-2">
-                <span className="font-medium">{name}</span>
+              <div className="flex min-w-0 shrink-0 items-center gap-2">
+                <span className="font-medium leading-none">{name}</span>
                 {data.isValue && (
-                  <span className="text-[10px] font-semibold uppercase text-emerald-400 bg-emerald-900/50 px-1.5 py-0.5 rounded">
+                  <span className="shrink-0 text-[10px] font-semibold uppercase leading-none text-emerald-400 bg-emerald-900/50 px-1.5 py-0.5 rounded">
                     +EV
                   </span>
                 )}
               </div>
-              <div className="text-right">
+              <div className="flex min-w-0 shrink-0 flex-col items-end justify-center text-right">
                 <a
                   href={getBookLink(data.bestBook)}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-emerald-400 font-mono text-sm hover:underline"
+                  className="inline-flex items-center gap-1 text-emerald-400 font-mono text-sm leading-none hover:underline"
                 >
                   {data.bestOdds.toFixed(2)} @ {data.bestBook} ↗
                 </a>
@@ -628,18 +970,18 @@ function EventCard({
               {Object.entries(event.spreadsBySelection).map(([label, data]) => (
                 <div
                   key={label}
-                  className={`flex items-center justify-between rounded px-2.5 py-1.5 text-sm ${
+                  className={`flex items-center justify-between gap-2 rounded px-2.5 py-1.5 text-sm ${
                     data.isValue
                       ? "bg-emerald-950/30 border border-emerald-800/40"
                       : "bg-zinc-800/40"
                   }`}
                 >
-                  <span className="font-mono text-zinc-300">{label}</span>
+                  <span className="font-mono text-zinc-300 leading-none">{label}</span>
                   <a
                     href={getBookLink(data.bestBook)}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-emerald-400 font-mono text-xs hover:underline"
+                    className="inline-flex items-center gap-1 text-emerald-400 font-mono text-xs leading-none hover:underline"
                   >
                     {data.bestOdds.toFixed(2)} @ {data.bestBook} ↗
                   </a>
@@ -660,18 +1002,18 @@ function EventCard({
               {Object.entries(event.totalsBySelection).map(([label, data]) => (
                 <div
                   key={label}
-                  className={`flex items-center justify-between rounded px-2.5 py-1.5 text-sm ${
+                  className={`flex items-center justify-between gap-2 rounded px-2.5 py-1.5 text-sm ${
                     data.isValue
                       ? "bg-emerald-950/30 border border-emerald-800/40"
                       : "bg-zinc-800/40"
                   }`}
                 >
-                  <span className="font-mono text-zinc-300">{label}</span>
+                  <span className="font-mono text-zinc-300 leading-none">{label}</span>
                   <a
                     href={getBookLink(data.bestBook)}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-emerald-400 font-mono text-xs hover:underline"
+                    className="inline-flex items-center gap-1 text-emerald-400 font-mono text-xs leading-none hover:underline"
                   >
                     {data.bestOdds.toFixed(2)} @ {data.bestBook} ↗
                   </a>
