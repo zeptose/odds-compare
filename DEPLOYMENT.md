@@ -41,9 +41,20 @@ git push -u origin main
    - **Value:** your key from [the-odds-api.com](https://the-odds-api.com)
    - **Environments:** Production, Preview, Development
 
+**If you see "Invalid Odds API key":**
+
+- **Local:** Create `.env.local` with `ODDS_API_KEY=your_key` (get key from [the-odds-api.com](https://the-odds-api.com))
+- **Vercel:** Add `ODDS_API_KEY` in Project → Settings → Environment Variables, then **Redeploy** (env vars only apply to new deploys)
+
 ### 4. Redeploy
 
 After adding env vars, trigger a new deployment from the **Deployments** tab.
+
+### 5. Change the URL (remove "beige", get odds-compare.vercel.app)
+
+1. In Vercel: **Project** → **Settings** → **General**
+2. Under **Project Name**, change `odds-compare-beige` → `odds-compare`
+3. Save. Your site will be at **https://odds-compare.vercel.app**
 
 ---
 
