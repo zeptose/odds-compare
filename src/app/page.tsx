@@ -26,6 +26,26 @@ function savePrefs(p: { sport?: string; bankroll?: string; kelly?: string }) {
   } catch {}
 }
 
+const FAVES_KEY = "odds-compare-faves";
+
+function loadFaves(): Set<string> {
+  if (typeof window === "undefined") return new Set();
+  try {
+    const s = localStorage.getItem(FAVES_KEY);
+    if (!s) return new Set();
+    return new Set(JSON.parse(s) as string[]);
+  } catch {
+    return new Set();
+  }
+}
+
+function saveFaves(faves: Set<string>) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(FAVES_KEY, JSON.stringify([...faves]));
+  } catch {}
+}
+
 function formatEventTime(iso: string) {
   try {
     return new Date(iso).toLocaleString(undefined, {
@@ -142,6 +162,13 @@ export default function Home() {
   useEffect(() => {
     if (!mounted) return;
     fetchOdds();
+  }, [mounted, fetchOdds]);
+
+  // Auto-refresh every 5 min
+  useEffect(() => {
+    if (!mounted) return;
+    const id = setInterval(fetchOdds, 5 * 60 * 1000);
+    return () => clearInterval(id);
   }, [mounted, fetchOdds]);
 
   const evBets = useMemo((): EVBet[] => {
@@ -284,25 +311,78 @@ export default function Home() {
   }, [sportsbookEvents]);
 
   const [calculatorsOpen, setCalculatorsOpen] = useState(false);
+  const [theme, setTheme] = useState<"dark" | "light">("dark");
+  const [faves, setFaves] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const stored = localStorage.getItem("odds-compare-theme") as "dark" | "light" | null;
+    if (stored === "dark" || stored === "light") setTheme(stored);
+    setFaves(loadFaves());
+  }, [mounted]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    document.documentElement.classList.toggle("dark", theme === "dark");
+    document.documentElement.classList.toggle("light", theme === "light");
+    localStorage.setItem("odds-compare-theme", theme);
+  }, [theme]);
+
+  const toggleFave = (id: string) => {
+    const next = new Set(faves);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setFaves(next);
+    saveFaves(next);
+  };
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 font-sans">
-      <header className="border-b border-zinc-800 px-4 py-4 md:px-8">
+    <div
+      className={`min-h-screen font-sans transition-colors ${
+        theme === "light"
+          ? "bg-gray-50 text-gray-900"
+          : "bg-zinc-950 text-zinc-100"
+      }`}
+      data-theme={theme}
+    >
+      <header
+        className={`border-b px-4 py-4 md:px-8 ${
+          theme === "light" ? "border-gray-200" : "border-zinc-800"
+        }`}
+      >
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h1 className="text-xl font-bold text-emerald-400">
+            <h1 className="text-xl font-bold text-emerald-500">
               Odds Compare · +EV Finder
             </h1>
-            <p className="text-sm text-zinc-500 mt-0.5">
+            <p
+              className={`text-sm mt-0.5 ${
+                theme === "light" ? "text-gray-500" : "text-zinc-500"
+              }`}
+            >
               Sportsbooks + Polymarket · Best odds · Value bets · Kelly sizing
             </p>
           </div>
-          <button
-            onClick={() => setLearnOpen(!learnOpen)}
-            className="px-4 py-2 rounded-lg border border-emerald-700/50 bg-emerald-950/30 text-emerald-400 text-sm font-medium hover:bg-emerald-900/20 transition-colors"
-          >
-            {learnOpen ? "Hide" : "How it works"}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+              className={`px-3 py-1.5 rounded text-xs font-medium border transition-colors ${
+                theme === "light"
+                  ? "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                  : "border-zinc-700 bg-zinc-800/50 text-zinc-300 hover:bg-zinc-800"
+              }`}
+              title={theme === "dark" ? "Switch to light" : "Switch to dark"}
+              aria-label="Toggle theme"
+            >
+              {theme === "dark" ? "☀️ Light" : "🌙 Dark"}
+            </button>
+            <button
+              onClick={() => setLearnOpen(!learnOpen)}
+              className="px-4 py-2 rounded-lg border border-emerald-700/50 bg-emerald-950/30 text-emerald-400 text-sm font-medium hover:bg-emerald-900/20 transition-colors"
+            >
+              {learnOpen ? "Hide" : "How it works"}
+            </button>
+          </div>
         </div>
       </header>
 
@@ -322,8 +402,12 @@ export default function Home() {
               content="Positive expected value = odds better than true probability. We flag green when a book offers value."
             />
             <LearnCard
+              title="Bankroll"
+              content="Your total betting budget. Enter it above to see: stake per bet (Kelly % × bankroll), profit if you win, loss if you lose."
+            />
+            <LearnCard
               title="Kelly fraction"
-              content="Enter bankroll above to see stake, profit & loss per bet. Full Kelly = optimal but volatile; half or quarter = safer."
+              content="Tells you what % of bankroll to bet. Full Kelly = optimal but volatile; half or quarter = safer."
             />
             <LearnCard
               title="Arbitrage"
@@ -371,7 +455,7 @@ export default function Home() {
               className="bg-zinc-800 border border-zinc-700 rounded px-3 py-2.5 text-sm w-28 min-h-[44px] touch-manipulation"
             />
             <p className="text-[10px] text-zinc-600 mt-0.5">
-              Shows stake, profit & loss per bet when set
+              Your budget — shows stake, profit & loss per bet
             </p>
           </div>
           <div>
@@ -655,6 +739,28 @@ export default function Home() {
               )}
             </div>
 
+            {/* Favorites */}
+            {faves.size > 0 && (
+              <section className="mb-8">
+                <h2 className="text-lg font-semibold text-zinc-200 mb-3">
+                  Favorites ({faves.size})
+                </h2>
+                <div className="space-y-4">
+                  {[...sportsbookEvents, ...polymarketEvents]
+                    .filter((ev) => faves.has(ev.eventId))
+                    .map((ev) => (
+                      <EventCard
+                        key={ev.eventId}
+                        event={ev}
+                        bankroll={Number(bankroll) || 0}
+                        isFave
+                        onToggleFave={() => toggleFave(ev.eventId)}
+                      />
+                    ))}
+                </div>
+              </section>
+            )}
+
             {/* Main content grid */}
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 xl:gap-8">
               <div className="xl:col-span-2">
@@ -672,6 +778,8 @@ export default function Home() {
                         key={ev.eventId}
                         event={ev}
                         bankroll={Number(bankroll) || 0}
+                        isFave={faves.has(ev.eventId)}
+                        onToggleFave={() => toggleFave(ev.eventId)}
                       />
                     ))}
                   </div>
@@ -688,7 +796,13 @@ export default function Home() {
                   ) : (
                     <div className="space-y-3">
                       {polymarketEvents.slice(0, 8).map((ev) => (
-                        <EventCard key={ev.eventId} event={ev} compact />
+                        <EventCard
+                          key={ev.eventId}
+                          event={ev}
+                          compact
+                          isFave={faves.has(ev.eventId)}
+                          onToggleFave={() => toggleFave(ev.eventId)}
+                        />
                       ))}
                     </div>
                   )}
@@ -884,10 +998,14 @@ function EventCard({
   event,
   compact = false,
   bankroll = 0,
+  isFave = false,
+  onToggleFave,
 }: {
   event: EventWithBestOdds;
   compact?: boolean;
   bankroll?: number;
+  isFave?: boolean;
+  onToggleFave?: () => void;
 }) {
   const date = new Date(event.commenceTime);
   return (
@@ -896,8 +1014,20 @@ function EventCard({
         compact ? "p-3" : ""
       }`}
     >
-      <div className="text-sm font-medium text-zinc-300 mb-2">
-        {event.eventName}
+      <div className="flex items-start justify-between gap-2 mb-2">
+        <div className="text-sm font-medium text-zinc-300 min-w-0">
+          {event.eventName}
+        </div>
+        {onToggleFave && (
+          <button
+            onClick={onToggleFave}
+            className="shrink-0 p-1 rounded hover:bg-zinc-800/50 transition-colors"
+            title={isFave ? "Remove from favorites" : "Add to favorites"}
+            aria-label={isFave ? "Remove from favorites" : "Add to favorites"}
+          >
+            {isFave ? "★" : "☆"}
+          </button>
+        )}
       </div>
       <div className="text-xs text-zinc-500 mb-3">{formatEventTime(event.commenceTime)}</div>
 

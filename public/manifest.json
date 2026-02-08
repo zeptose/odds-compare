@@ -1,0 +1,16 @@
+{
+  "name": "Odds Compare · +EV Finder",
+  "short_name": "Odds Compare",
+  "description": "Compare sportsbook + Polymarket odds, find value bets, Kelly sizing",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#09090b",
+  "theme_color": "#10b981",
+  "icons": [
+    {
+      "src": "/next.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
