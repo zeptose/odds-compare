@@ -42,7 +42,8 @@ function buildOutcomes(
     const best = plain.reduce((a, b) =>
       a.decimalOdds > b.decimalOdds ? a : b
     );
-    const fair = fairImpliedProb(plain, true);
+    // Use average implied prob as "fair" market consensus; best odds can beat it
+    const fair = fairImpliedProb(plain, false);
     const isValue = isValueBet(best.impliedProb, fair);
 
     let kellyFraction: number | undefined;
